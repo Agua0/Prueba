@@ -1,0 +1,50 @@
+from qiskit_nature.drivers import Molecule, UnitsType
+from qiskit_nature.drivers.second_quantization import ElectronicStructureDriverType, ElectronicStructureMoleculeDriver
+from qiskit_nature.problems.second_quantization import ElectronicStructureProblem
+from qiskit_nature.converters.second_quantization import QubitConverter
+from qiskit_nature.mappers.second_quantization import ParityMapper
+from qiskit_nature.circuit.library import HartreeFock, UCCSD
+from qiskit import Aer
+from qiskit.algorithms import VQE
+from qiskit.algorithms.optimizers import COBYLA
+from qiskit.utils import QuantumInstance
+
+# Define the molecule
+molecule = Molecule(geometry=[('O', [0.0, 0.0, 0.0]), ('O', [0.0, 0.0, 1.2])],
+                    charge=0,
+                    multiplicity=3,
+                    units=UnitsType.ANGSTROM,
+)
+
+# Use ElectronicStructureMoleculeDriver to create the molecule driver
+driver = ElectronicStructureMoleculeDriver(molecule, basis='sto3g')
+
+# Create the electronic structure problem
+problem = ElectronicStructureProblem(driver)
+
+# Get the qubit Hamiltonian
+converter = QubitConverter(ParityMapper(), two_qubit_reduction=True)
+qubit_op = converter.convert(problem.second_q_ops()[0])
+
+# Get molecular data
+num_particles = (problem.molecule_data_transformed.num_alpha,
+                 problem.molecule_data_transformed.num_beta)
+num_spin_orbitals = 2 * problem.molecule_data_transformed.num_molecular_orbitals
+
+# Set up the initial state (Hartree-Fock state)
+init_state = HartreeFock(num_spin_orbitals, num_particles, converter)
+
+# Set up the variational form (UCCSD)
+var_form = UCCSD(converter, num_particles, num_spin_orbitals, initial_state=init_state)
+
+# Set up the VQE algorithm
+optimizer = COBYLA(maxiter=1000)
+algorithm = VQE(var_form, optimizer)
+
+# Set up the backend for the quantum instance
+backend = Aer.get_backend('statevector_simulator')
+quantum_instance = QuantumInstance(backend=backend)
+
+# Run the VQE algorithm
+result = algorithm.compute_minimum_eigenvalue(qubit_op)
+print('Ground state energy (Hartree):', result.optimal_value)
